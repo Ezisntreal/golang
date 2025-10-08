@@ -1,14 +1,24 @@
 package migrate
 
-import "day1/internal/db"
+import "api/internal/db"
 
-func createSensorTable() error {
+func CreateSensorTable() error {
 	query := `
-	CREATE TABLE IF NOT EXISTS sensors (
-		id SERIAL PRIMARY KEY,
-		code TEXT UNIQUE NOT NULL,
-		name TEXT NOT NULL
-	);`
+		DROP TABLE IF EXISTS sensors CASCADE;
+
+		CREATE TABLE sensors (
+			id SERIAL PRIMARY KEY,
+			name TEXT NOT NULL,
+			code TEXT UNIQUE NOT NULL,
+			unit TEXT,
+			metric TEXT,
+			position JSONB DEFAULT '{}',
+			min DOUBLE PRECISION,
+			max DOUBLE PRECISION,
+			ctime BIGINT,
+			mtime BIGINT,
+			dtime BIGINT
+		);`
 
 	_, err := db.DB.Exec(query)
 	return err

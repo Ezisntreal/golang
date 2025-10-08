@@ -1,8 +1,8 @@
 package main
 
 import (
-	"day1/internal/db"
-	"day1/internal/seed"
+	"api/internal/db"
+	"api/internal/seed"
 )
 
 func main() {

@@ -1,16 +1,19 @@
 package migrate
 
-import "day1/internal/db"
+import "api/internal/db"
 
-func createUserTable() error {
+func CreateUserTable() error {
 	query := `
-	CREATE TABLE IF NOT EXISTS users (
+	DROP TABLE IF EXISTS users CASCADE;
+	
+	CREATE TABLE users (
 		id SERIAL PRIMARY KEY,
 		username TEXT UNIQUE NOT NULL,
 		fullname TEXT NOT NULL,
-		phone TEXT
+		phone TEXT,
+		dtime BIGINT NULL
 	);`
-
+	
 	_, err := db.DB.Exec(query)
 	return err
 }

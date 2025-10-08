@@ -1,4 +1,4 @@
-module day1
+module api
 
 go 1.24.1
 

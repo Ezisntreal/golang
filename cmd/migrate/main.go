@@ -1,8 +1,8 @@
 package main
 
 import (
-	"day1/internal/db"
-	"day1/internal/migrate"
+	"api/internal/db"
+	"api/internal/migrate"
 )
 
 func main() {

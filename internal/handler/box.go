@@ -10,24 +10,21 @@ import (
 	"api/internal/db"
 )
 
-type User struct {
-	ID       int     `json:"id"`
-	Username string  `json:"username"`
-	Fullname string  `json:"fullname"`
-	Phone    string  `json:"phone"`
-	Ctime	 *int64  `json:"ctime"`
-	DTime    *int64  `json:"dtime,omitempty"`
+type Box struct {
+	ID       int      `json:"id"`
+	Name     string   `json:"name"`
+	Sensors  []string `json:"sensors"`
+	Ctime    *int64   `json:"ctime"`
+	DTime    *int64   `json:"dtime,omitempty"`
 }
 
-
-
-// GET /users
-func GetUsersHandler(w http.ResponseWriter, r *http.Request) {
+// 🔹 GET /boxes
+func GetBoxesHandler(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
 	defer cancel()
 
 	rows, err := db.DB.QueryContext(ctx,
-		"SELECT id, username, fullname, phone FROM users WHERE dtime IS NULL",
+		"SELECT id, name, sensors, ctime, dtime FROM boxes WHERE dtime IS NULL",
 	)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -35,46 +32,57 @@ func GetUsersHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	defer rows.Close()
 
-	var users []User
+	var boxes []Box
 	for rows.Next() {
-		var u User
-		if err := rows.Scan(&u.ID, &u.Username, &u.Fullname, &u.Phone); err != nil {
+		var b Box
+		var sensorsJSON []byte
+		if err := rows.Scan(&b.ID, &b.Name, &sensorsJSON, &b.Ctime, &b.DTime); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		users = append(users, u)
+		_ = json.Unmarshal(sensorsJSON, &b.Sensors)
+		boxes = append(boxes, b)
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(users)
+	json.NewEncoder(w).Encode(boxes)
 }
 
-// POST /users
-func CreateUserHandler(w http.ResponseWriter, r *http.Request) {
+// 🔹 POST /boxes
+func CreateBoxHandler(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
 	defer cancel()
 
-	var u User
-	if err := json.NewDecoder(r.Body).Decode(&u); err != nil {
+	var b Box
+	if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
 		http.Error(w, "invalid body", http.StatusBadRequest)
 		return
 	}
 
-	err := db.DB.QueryRowContext(ctx,
-		"INSERT INTO users(username, fullname, phone) VALUES($1, $2, $3) RETURNING id",
-		u.Username, u.Fullname, u.Phone,
-	).Scan(&u.ID)
+	now := time.Now().UnixMilli()
+	b.Ctime = &now
+
+	sensorsJSON, err := json.Marshal(b.Sensors)
+	if err != nil {
+		http.Error(w, "invalid sensors data", http.StatusBadRequest)
+		return
+	}
+
+	err = db.DB.QueryRowContext(ctx,
+		"INSERT INTO boxes(name, sensors, ctime) VALUES($1, $2, $3) RETURNING id",
+		b.Name, sensorsJSON, b.Ctime,
+	).Scan(&b.ID)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(u)
+	json.NewEncoder(w).Encode(b)
 }
 
-// PUT /users?id=1
-func UpdateUserHandler(w http.ResponseWriter, r *http.Request) {
+// 🔹 PUT /boxes?id=1
+func UpdateBoxHandler(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
 	defer cancel()
 
@@ -89,17 +97,23 @@ func UpdateUserHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var u User
-	if err := json.NewDecoder(r.Body).Decode(&u); err != nil {
+	var b Box
+	if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
 		http.Error(w, "invalid body", http.StatusBadRequest)
 		return
 	}
 
+	sensorsJSON, err := json.Marshal(b.Sensors)
+	if err != nil {
+		http.Error(w, "invalid sensors data", http.StatusBadRequest)
+		return
+	}
+
 	_, err = db.DB.ExecContext(ctx,
-		`UPDATE users 
-		 SET username = $1, fullname = $2, phone = $3 
-		 WHERE id = $4 AND dtime IS NULL`,
-		u.Username, u.Fullname, u.Phone, id,
+		`UPDATE boxes 
+		 SET name = $1, sensors = $2 
+		 WHERE id = $3 AND dtime IS NULL`,
+		b.Name, sensorsJSON, id,
 	)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -110,8 +124,8 @@ func UpdateUserHandler(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte(`{"message": "✅ updated successfully"}`))
 }
 
-// DELETE /users?id=1
-func DeleteUserHandler(w http.ResponseWriter, r *http.Request) {
+// 🔹 DELETE /boxes?id=1
+func DeleteBoxHandler(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
 	defer cancel()
 
@@ -128,7 +142,7 @@ func DeleteUserHandler(w http.ResponseWriter, r *http.Request) {
 
 	now := time.Now().UnixMilli()
 	_, err = db.DB.ExecContext(ctx,
-		"UPDATE users SET dtime = $1 WHERE id = $2 AND dtime IS NULL",
+		"UPDATE boxes SET dtime = $1 WHERE id = $2 AND dtime IS NULL",
 		now, id,
 	)
 	if err != nil {
@@ -137,5 +151,5 @@ func DeleteUserHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.WriteHeader(http.StatusOK)
-	w.Write([]byte(`{"message": " deleted successfully"}`))
+	w.Write([]byte(`{"message": "🗑️ deleted successfully"}`))
 }
