@@ -5,20 +5,22 @@ import (
 	"encoding/json"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"api/internal/db"
+	"github.com/lib/pq"
 )
 
 type Box struct {
-	ID       int      `json:"id"`
-	Name     string   `json:"name"`
-	Sensors  []string `json:"sensors"`
-	Ctime    *int64   `json:"ctime"`
-	DTime    *int64   `json:"dtime,omitempty"`
+	ID      int      `json:"id"`
+	Name    string   `json:"name"`
+	Sensors []string `json:"sensors"`
+	Ctime   *int64   `json:"ctime"`
+	DTime   *int64   `json:"dtime,omitempty"`
 }
 
-// 🔹 GET /boxes
+// 🔹 GET /box
 func GetBoxesHandler(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
 	defer cancel()
@@ -35,12 +37,26 @@ func GetBoxesHandler(w http.ResponseWriter, r *http.Request) {
 	var boxes []Box
 	for rows.Next() {
 		var b Box
-		var sensorsJSON []byte
-		if err := rows.Scan(&b.ID, &b.Name, &sensorsJSON, &b.Ctime, &b.DTime); err != nil {
+		var sensorsStr *string // đọc text[] từ PostgreSQL thành chuỗi
+		if err := rows.Scan(&b.ID, &b.Name, &sensorsStr, &b.Ctime, &b.DTime); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		_ = json.Unmarshal(sensorsJSON, &b.Sensors)
+
+		// ✅ Parse thủ công thành []string
+		if sensorsStr != nil && *sensorsStr != "" {
+			s := strings.Trim(*sensorsStr, "{}[]") // bỏ {}, [] nếu có
+			s = strings.ReplaceAll(s, `"`, "")     // bỏ dấu "
+			if s != "" {
+				b.Sensors = strings.Split(s, ",")
+				for i := range b.Sensors {
+					b.Sensors[i] = strings.TrimSpace(b.Sensors[i])
+				}
+			}
+		} else {
+			b.Sensors = []string{}
+		}
+
 		boxes = append(boxes, b)
 	}
 
@@ -48,7 +64,7 @@ func GetBoxesHandler(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(boxes)
 }
 
-// 🔹 POST /boxes
+// 🔹 POST /box
 func CreateBoxHandler(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
 	defer cancel()
@@ -62,15 +78,10 @@ func CreateBoxHandler(w http.ResponseWriter, r *http.Request) {
 	now := time.Now().UnixMilli()
 	b.Ctime = &now
 
-	sensorsJSON, err := json.Marshal(b.Sensors)
-	if err != nil {
-		http.Error(w, "invalid sensors data", http.StatusBadRequest)
-		return
-	}
-
-	err = db.DB.QueryRowContext(ctx,
+	// ❌ bỏ json.Marshal
+	err := db.DB.QueryRowContext(ctx,
 		"INSERT INTO boxes(name, sensors, ctime) VALUES($1, $2, $3) RETURNING id",
-		b.Name, sensorsJSON, b.Ctime,
+		b.Name, pq.Array(b.Sensors), *b.Ctime,
 	).Scan(&b.ID)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -81,7 +92,7 @@ func CreateBoxHandler(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(b)
 }
 
-// 🔹 PUT /boxes?id=1
+// 🔹 PUT /box?id=1
 func UpdateBoxHandler(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
 	defer cancel()
@@ -103,17 +114,12 @@ func UpdateBoxHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	sensorsJSON, err := json.Marshal(b.Sensors)
-	if err != nil {
-		http.Error(w, "invalid sensors data", http.StatusBadRequest)
-		return
-	}
-
+	// ✅ Không dùng json.Marshal — dùng pq.Array vì cột là TEXT[]
 	_, err = db.DB.ExecContext(ctx,
 		`UPDATE boxes 
 		 SET name = $1, sensors = $2 
 		 WHERE id = $3 AND dtime IS NULL`,
-		b.Name, sensorsJSON, id,
+		b.Name, pq.Array(b.Sensors), id,
 	)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -124,7 +130,8 @@ func UpdateBoxHandler(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte(`{"message": "✅ updated successfully"}`))
 }
 
-// 🔹 DELETE /boxes?id=1
+
+// 🔹 DELETE /box?id=1
 func DeleteBoxHandler(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
 	defer cancel()
